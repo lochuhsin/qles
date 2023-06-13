@@ -39,9 +39,12 @@ func reverseTree(node sqlparser.Expr, isNot bool) sqlparser.Expr {
 		}
 		return n
 
+	// between and not between
 	case *sqlparser.RangeCond:
-		if isNot {
+		if isNot && n.Operator == "between" {
 			return reverseRange(n)
+		} else if isNot && n.Operator == "not between" {
+			return reverseNotRange(n)
 		}
 		return n
 	}
@@ -79,6 +82,11 @@ func reverseRange(n *sqlparser.RangeCond) *sqlparser.OrExpr {
 	l := sqlparser.ComparisonExpr{Operator: "<", Left: n.Left, Right: n.From}
 	r := sqlparser.ComparisonExpr{Operator: ">", Left: n.Left, Right: n.To}
 	return &sqlparser.OrExpr{Left: &l, Right: &r}
+}
+
+func reverseNotRange(n *sqlparser.RangeCond) *sqlparser.RangeCond {
+	n.Operator = "between"
+	return n
 }
 
 func reverseComparison(n *sqlparser.ComparisonExpr) *sqlparser.ComparisonExpr {
