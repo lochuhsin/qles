@@ -10,3 +10,4 @@ qles is a project that transforms sql to elasticsearch query.
 - [x]  Support select field statement
 - [x]  Support limit offset keywords
 - [ ]  Add tests
+- [ ]  Implement group by
