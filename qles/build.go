@@ -16,7 +16,9 @@ func BuildES(sqlQuery string, pathMap map[string]string) (Query, error) {
 	searchQ := ConvertWhereToES(selectAST.Where, pathMap)
 	// order by
 	sortQ := ConvertOrderByToES(selectAST.Where, selectAST.OrderBy, pathMap)
-	return GetESQuery(searchQ, sortQ), nil
+	// fields
+	fields := ConvertSelectColumnsToES(selectAST.SelectExprs)
+	return GetESQuery(searchQ, sortQ, fields), nil
 }
 
 func preprocess(sqlQuery string) (sqlparser.SQLNode, error) {
@@ -32,6 +34,18 @@ func preprocess(sqlQuery string) (sqlparser.SQLNode, error) {
 	}
 	selectStatement.Where = whereNode
 	return selectStatement, nil
+}
+
+func ConvertSelectColumnsToES(selectExprs sqlparser.SelectExprs) []string {
+	columns := []string{}
+	for _, c := range selectExprs {
+		str := sqlparser.String(c)
+		if str == "*" {
+			return nil
+		}
+		columns = append(columns, str)
+	}
+	return columns
 }
 
 func ConvertOrderByToES(whereAST *sqlparser.Where, orderbyAST sqlparser.OrderBy, pathMap map[string]string) []map[string]SortObject {

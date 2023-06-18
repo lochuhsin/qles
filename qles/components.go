@@ -22,17 +22,21 @@ func (NestedSortQuery) iQuery() {}
 func (ESQuery) iQuery()         {}
 
 type ESQuery struct {
-	Query Query                   `json:"query,omitempty"`
-	Sort  []map[string]SortObject `json:"sort,omitempty"`
+	Query  Query                   `json:"query,omitempty"`
+	Sort   []map[string]SortObject `json:"sort,omitempty"`
+	Fields []string                `json:"fields,omitempty"`
 }
 
-func GetESQuery(query Query, sort []map[string]SortObject) ESQuery {
+func GetESQuery(query Query, sort []map[string]SortObject, fields []string) ESQuery {
 	esQ := ESQuery{}
 	if query != nil {
 		esQ.Query = query
 	}
 	if len(sort) != 0 {
 		esQ.Sort = sort
+	}
+	if len(fields) != 0 {
+		esQ.Fields = fields
 	}
 	return esQ
 }
@@ -163,7 +167,7 @@ type boolComponents struct {
 }
 
 type BoolQuery struct {
-	Bool boolComponents
+	Bool boolComponents `json:"bool,omitempty"`
 }
 
 func GetBoolQuery(query []Query, queryType BoolType) BoolQuery {
@@ -317,11 +321,11 @@ func ConvertNotExist(field string) BoolQuery {
 func ConvertRangeExpr(token sqlparser.RangeCond) RangeQuery {
 	field := token.Left.(*sqlparser.ColName).Name.String()
 
-	low, err := ConvertToNativeType(token.Left.(*sqlparser.SQLVal))
+	low, err := ConvertToNativeType(token.From.(*sqlparser.SQLVal))
 	if err != nil {
 		panic(err)
 	}
-	high, err := ConvertToNativeType(token.Left.(*sqlparser.SQLVal))
+	high, err := ConvertToNativeType(token.To.(*sqlparser.SQLVal))
 	if err != nil {
 		panic(err)
 	}
