@@ -18,7 +18,12 @@ func BuildES(sqlQuery string, pathMap map[string]string) (Query, error) {
 	sortQ := ConvertOrderByToES(selectAST.Where, selectAST.OrderBy, pathMap)
 	// fields
 	fields := ConvertSelectColumnsToES(selectAST.SelectExprs)
-	return GetESQuery(searchQ, sortQ, fields), nil
+	// limit offset
+	from, size, err := ConvertLimitOffsetToES(selectAST.Limit)
+	if err != nil {
+		return nil, err
+	}
+	return GetESQuery(searchQ, sortQ, fields, from, size), nil
 }
 
 func preprocess(sqlQuery string) (sqlparser.SQLNode, error) {
@@ -101,4 +106,34 @@ func ConvertWhereToES(whereAST *sqlparser.Where, pathMap map[string]string) Quer
 		shouldCond = append(shouldCond, esObj.ToQuery())
 	}
 	return GetBoolQuery(shouldCond, Should)
+}
+
+func ConvertLimitOffsetToES(limitAST *sqlparser.Limit) (from *int, size *int, err error) {
+	if limitAST == nil {
+		return nil, nil, nil
+	}
+
+	offset, count := limitAST.Offset, limitAST.Rowcount
+	if offset != nil {
+		val, err := ConvertToNativeType(
+			offset.(*sqlparser.SQLVal),
+		)
+		if err != nil {
+			return nil, nil, err
+		}
+		v, _ := val.(int)
+		from = &v
+	}
+	if count != nil {
+		val, err := ConvertToNativeType(
+			count.(*sqlparser.SQLVal),
+		)
+		if err != nil {
+			return nil, nil, err
+		}
+		v, _ := val.(int)
+		size = &v
+	}
+
+	return from, size, nil
 }

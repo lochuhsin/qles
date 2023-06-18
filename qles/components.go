@@ -25,9 +25,11 @@ type ESQuery struct {
 	Query  Query                   `json:"query,omitempty"`
 	Sort   []map[string]SortObject `json:"sort,omitempty"`
 	Fields []string                `json:"fields,omitempty"`
+	Size   int                     `json:"size,omitempty"`
+	From   int                     `json:"from,omitempty"`
 }
 
-func GetESQuery(query Query, sort []map[string]SortObject, fields []string) ESQuery {
+func GetESQuery(query Query, sort []map[string]SortObject, fields []string, from, size *int) ESQuery {
 	esQ := ESQuery{}
 	if query != nil {
 		esQ.Query = query
@@ -37,6 +39,13 @@ func GetESQuery(query Query, sort []map[string]SortObject, fields []string) ESQu
 	}
 	if len(fields) != 0 {
 		esQ.Fields = fields
+	}
+	if from != nil {
+		esQ.From = *from
+	}
+
+	if size != nil {
+		esQ.Size = *size
 	}
 	return esQ
 }
