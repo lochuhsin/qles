@@ -12,24 +12,63 @@ type Query interface {
 	iQuery()
 }
 
-func (TermQuery) iQuery()   {}
-func (RangeQuery) iQuery()  {}
-func (ExistQuery) iQuery()  {}
-func (BoolQuery) iQuery()   {}
-func (NestedQuery) iQuery() {}
-func (SortQuery) iQuery()   {}
+func (TermQuery) iQuery()       {}
+func (RangeQuery) iQuery()      {}
+func (ExistQuery) iQuery()      {}
+func (BoolQuery) iQuery()       {}
+func (NestedQuery) iQuery()     {}
+func (SortQuery) iQuery()       {}
+func (NestedSortQuery) iQuery() {}
+func (ESQuery) iQuery()         {}
 
-type SortComponent struct {
+type ESQuery struct {
+	Query Query                   `json:"query,omitempty"`
+	Sort  []map[string]SortObject `json:"sort,omitempty"`
 }
 
-type SortField struct {
+func GetESQuery(query Query, sort []map[string]SortObject) ESQuery {
+	esQ := ESQuery{}
+	if query != nil {
+		esQ.Query = query
+	}
+	if len(sort) != 0 {
+		esQ.Sort = sort
+	}
+	return esQ
+}
+
+type NestedSortQuery struct {
+	Path   string `json:"path,omitempty"`
+	Filter Query  `json:"filter,omitempty"`
+}
+
+func GetNestedSortQuery(path string, query Query) NestedSortQuery {
+	obj := NestedSortQuery{Path: path}
+	if query != nil {
+		obj.Filter = query
+	}
+	return obj
+}
+
+type SortObject struct {
+	Mode   string          `json:"mode"`
+	Order  string          `json:"order"`
+	Nested NestedSortQuery `json:"nested,omitempty"`
+}
+
+func GetSortObj(field, mode, order string, nestedQuery *NestedSortQuery) map[string]SortObject {
+	obj := SortObject{Mode: mode, Order: order}
+	if nestedQuery != nil {
+		obj.Nested = *nestedQuery
+	}
+	return map[string]SortObject{field: obj}
 }
 
 type SortQuery struct {
-	Sort []map[string]SortField `json:"sort"`
+	Sort []map[string]SortObject `json:"sort"`
 }
 
-func GetSortQuery(components []map[string]SortField) SortQuery {
+func GetSortQuery(components []map[string]SortObject) SortQuery {
 	return SortQuery{Sort: components}
 }
 
@@ -359,6 +398,6 @@ func ConvertToNativeType(val *sqlparser.SQLVal) (any, error) {
 	case sqlparser.FloatVal:
 		return strconv.ParseFloat(string(val.Val), 64)
 	default:
-		return "", errors.New("Other type not implemented yet")
+		return "", errors.New("other type not implemented yet")
 	}
 }

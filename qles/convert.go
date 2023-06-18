@@ -6,32 +6,67 @@ import (
 	"github.com/xwb1989/sqlparser"
 )
 
-func buildSort(sqlparser.OrderBy) {
+func ConvertOrderByToES(whereAST *sqlparser.Where, orderbyAST sqlparser.OrderBy, pathMap map[string]string) []map[string]SortObject {
+	orderFields := map[string]string{}
+	for _, fieldObj := range orderbyAST {
+		field := fieldObj.Expr.(*sqlparser.ColName).Name.String()
+		orderFields[field] = fieldObj.Direction
+	}
 
+	components := []map[string]SortObject{}
+	for field, order := range orderFields {
+		// normal field
+		if path, ok := pathMap[field]; ok && path == "" {
+			sortObj := GetSortObj(field, "avg", order, nil)
+			components = append(components, sortObj)
+		} else if ok && path != "" {
+			newPathMap := map[string]string{}
+			for k, v := range pathMap {
+				if v == path {
+					newPathMap[k] = ""
+				} else if v != "" {
+					newPathMap[k] = v
+				}
+			}
+			query := ConvertWhereToES(whereAST, newPathMap)
+			var sortObj map[string]SortObject
+			if query == nil {
+				sortObj = GetSortObj(field, "avg", order, nil)
+			} else {
+				nestedSortQ := GetNestedSortQuery(path, query)
+				sortObj = GetSortObj(field, "avg", order, &nestedSortQ)
+			}
+			components = append(components, sortObj)
+		}
+	}
+	return components
 }
 
-func convertWhereToES(whereAST *sqlparser.Where, pathMap map[string]string) Query {
+func ConvertWhereToES(whereAST *sqlparser.Where, pathMap map[string]string) Query {
+	if whereAST == nil {
+		return nil
+	}
 	esQueryObj, err := buildESRelation(whereAST.Expr, pathMap)
 	if err != nil {
 		panic(err)
+	}
+	if len(esQueryObj) == 1 {
+		return esQueryObj[0].ToQuery()
 	}
 
 	shouldCond := []Query{}
 	for _, esObj := range esQueryObj {
 		shouldCond = append(shouldCond, esObj.ToQuery())
 	}
-
-	boolQ := GetBoolQuery(shouldCond, Should)
-	return boolQ
+	return GetBoolQuery(shouldCond, Should)
 }
 
-func mergeAnd(left, right []AndObject) []AndObject {
+func mergeAnd(left, right []Object) []Object {
 	if left != nil && right != nil {
-		newArr := make([]AndObject, len(left)*len(right))
-		i := 0
+		newArr := []Object{}
 		for _, l := range left {
 			for _, r := range right {
-				newArr[i] = mergeObj(l, r)
+				newArr = append(newArr, mergeObj(l, r))
 			}
 		}
 		return newArr
@@ -46,7 +81,7 @@ func mergeAnd(left, right []AndObject) []AndObject {
 	return nil
 }
 
-func mergeOr(left, right []AndObject) []AndObject {
+func mergeOr(left, right []Object) []Object {
 	if left != nil && right != nil {
 		return append(left, right...)
 	}
@@ -59,14 +94,14 @@ func mergeOr(left, right []AndObject) []AndObject {
 	return nil
 }
 
-func mergeObj(obj1 AndObject, obj2 AndObject) AndObject {
+func mergeObj(obj1 Object, obj2 Object) Object {
 	for k, v := range obj2.PathConditions {
 		obj1.PathConditions[k] = append(obj1.PathConditions[k], v...)
 	}
 	return obj1
 }
 
-func buildESRelation(node sqlparser.Expr, pathMap map[string]string) ([]AndObject, error) {
+func buildESRelation(node sqlparser.Expr, pathMap map[string]string) ([]Object, error) {
 	switch n := node.(type) {
 
 	case *sqlparser.AndExpr:
@@ -103,18 +138,18 @@ func buildESRelation(node sqlparser.Expr, pathMap map[string]string) ([]AndObjec
 		case "=", "!=", "<>", ">=", ">", "<=", "<", "like", "not like":
 			column := n.Left.(*sqlparser.ColName).Name.String()
 			path := pathMap[column]
-			obj := GetAndObject(pathMap)
+			obj := GetObject(pathMap)
 			obj.AddCondition(n, path)
-			return []AndObject{obj}, nil
+			return []Object{obj}, nil
 
 		case "in":
 			valTuple := n.Right.(sqlparser.ValTuple)
 			field := n.Left.(*sqlparser.ColName).Name.String()
 			path := pathMap[field]
-			objs := []AndObject{}
+			objs := []Object{}
 			for _, expr := range valTuple {
 				comp := sqlparser.ComparisonExpr{Operator: "=", Left: n.Left, Right: expr}
-				obj := GetAndObject(pathMap)
+				obj := GetObject(pathMap)
 				obj.AddCondition(&comp, path)
 				objs = append(objs, obj)
 			}
@@ -124,29 +159,29 @@ func buildESRelation(node sqlparser.Expr, pathMap map[string]string) ([]AndObjec
 			valTuple := n.Right.(sqlparser.ValTuple)
 			field := n.Left.(*sqlparser.ColName).Name.String()
 			path := pathMap[field]
-			obj := GetAndObject(pathMap)
+			obj := GetObject(pathMap)
 			for _, expr := range valTuple {
 				comp := sqlparser.ComparisonExpr{Operator: "!=", Left: n.Left, Right: expr}
 				obj.AddCondition(&comp, path)
 			}
-			return []AndObject{obj}, nil
+			return []Object{obj}, nil
 		}
 
 	// name IS NULL
 	case *sqlparser.IsExpr:
 		column := n.Expr.(*sqlparser.ColName).Name.String()
 		path := pathMap[column]
-		obj := GetAndObject(pathMap)
+		obj := GetObject(pathMap)
 		obj.AddCondition(n, path)
-		return []AndObject{obj}, nil
+		return []Object{obj}, nil
 
 	// Between
 	case *sqlparser.RangeCond:
 		column := n.Left.(*sqlparser.ColName).Name.String()
 		path := pathMap[column]
-		obj := GetAndObject(pathMap)
+		obj := GetObject(pathMap)
 		obj.AddCondition(n, path)
-		return []AndObject{obj}, nil
+		return []Object{obj}, nil
 
 	default:
 		return nil, errors.New("un-supported sql operator")
@@ -155,15 +190,15 @@ func buildESRelation(node sqlparser.Expr, pathMap map[string]string) ([]AndObjec
 	return nil, nil
 }
 
-type AndObject struct {
+type Object struct {
 	PathConditions map[string][]sqlparser.Expr
 }
 
-func (obj *AndObject) AddCondition(expr sqlparser.Expr, path string) {
+func (obj *Object) AddCondition(expr sqlparser.Expr, path string) {
 	obj.PathConditions[path] = append(obj.PathConditions[path], expr)
 }
 
-func (obj *AndObject) ToQuery() Query {
+func (obj *Object) ToQuery() Query {
 	outerCond := []Query{}
 	for path, tokens := range obj.PathConditions {
 		if len(tokens) == 0 {
@@ -173,21 +208,31 @@ func (obj *AndObject) ToQuery() Query {
 		for _, t := range tokens {
 			conditions = append(conditions, toESQuery(t))
 		}
-		var query Query = GetBoolQuery(conditions, Filter)
+
+		var query Query
+		if len(conditions) == 1 {
+			query = conditions[0]
+		} else {
+			query = GetBoolQuery(conditions, Filter)
+		}
+
 		if path != "" {
 			query = GetNestedQuery(path, query)
 		}
 		outerCond = append(outerCond, query)
 	}
+	if len(outerCond) == 1 {
+		return outerCond[0]
+	}
 	return GetBoolQuery(outerCond, Filter)
 }
 
-func GetAndObject(pathMap map[string]string) AndObject {
+func GetObject(pathMap map[string]string) Object {
 	m := map[string][]sqlparser.Expr{}
 	for _, v := range pathMap {
 		m[v] = []sqlparser.Expr{}
 	}
-	return AndObject{PathConditions: m}
+	return Object{PathConditions: m}
 }
 
 func toESQuery(token sqlparser.Expr) Query {
